@@ -1,0 +1,3327 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseBI — Sales &amp; Revenue Analysis Dashboard</title>
+
+  <!-- External Libraries (CDNs) -->
+  <!-- PapaParse for fast, RFC-4180 compliant CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- SheetJS (xlsx) for client-side Excel (.xlsx / .xls) parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js for responsive interactive charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* =========================================================================
+       1. DESIGN TOKENS & THEME VARIABLES
+       ========================================================================= */
+    :root {
+      --bg-app: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-surface-alt: #f8fafc;
+      --bg-hover: #f1f5f9;
+      --border-color: #e2e8f0;
+      --border-strong: #cbd5e1;
+
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: rgba(79, 70, 229, 0.1);
+
+      --success: #10b981;
+      --success-soft: rgba(16, 185, 129, 0.12);
+      --danger: #ef4444;
+      --danger-soft: rgba(239, 68, 68, 0.12);
+      --warning: #f59e0b;
+      --warning-soft: rgba(245, 158, 11, 0.14);
+      --info: #0ea5e9;
+      --info-soft: rgba(14, 165, 233, 0.12);
+
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+      --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.07);
+      --shadow-lg: 0 14px 32px rgba(15, 23, 42, 0.14);
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+
+      --sidebar-width: 288px;
+      --header-height: 64px;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+      --heatmap-0: #f1f5f9;
+      --heatmap-1: #e0e7ff;
+      --heatmap-2: #a5b4fc;
+      --heatmap-3: #6366f1;
+      --heatmap-4: #4338ca;
+    }
+
+    [data-theme="dark"] {
+      --bg-app: #0b1120;
+      --bg-surface: #111827;
+      --bg-surface-alt: #1a2335;
+      --bg-hover: #1e293b;
+      --border-color: #1f2937;
+      --border-strong: #334155;
+
+      --text-primary: #f1f5f9;
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.18);
+
+      --success: #34d399;
+      --success-soft: rgba(52, 211, 153, 0.15);
+      --danger: #f87171;
+      --danger-soft: rgba(248, 113, 113, 0.15);
+      --warning: #fbbf24;
+      --warning-soft: rgba(251, 191, 36, 0.15);
+      --info: #38bdf8;
+      --info-soft: rgba(56, 189, 248, 0.15);
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+      --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.55);
+
+      --heatmap-0: #1e293b;
+      --heatmap-1: #312e81;
+      --heatmap-2: #4338ca;
+      --heatmap-3: #6366f1;
+      --heatmap-4: #818cf8;
+    }
+
+    /* =========================================================================
+       2. RESET & BASE TYPOGRAPHY
+       ========================================================================= */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--font-sans);
+      background-color: var(--bg-app);
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, select {
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+    }
+
+    /* =========================================================================
+       3. LAYOUT SHELL (HEADER + SIDEBAR + MAIN)
+       ========================================================================= */
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      height: var(--header-height);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      gap: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent), #0ea5e9);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .dataset-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--bg-surface-alt);
+      border: 1px solid var(--border-color);
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 260px;
+    }
+
+    .dataset-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-color);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    .btn-ghost {
+      border-color: transparent;
+      background: transparent;
+    }
+    .btn-ghost:hover { background: var(--bg-hover); }
+
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    .mobile-menu-btn { display: none; }
+
+    .app-shell {
+      display: flex;
+      min-height: calc(100vh - var(--header-height));
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: var(--sidebar-width);
+      flex-shrink: 0;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-color);
+      padding: 18px 16px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      position: sticky;
+      top: var(--header-height);
+      height: calc(100vh - var(--header-height));
+      overflow-y: auto;
+      z-index: 30;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .filter-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .filter-quick-links {
+      display: flex;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    .link-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--accent);
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .link-btn:hover { text-decoration: underline; }
+
+    .date-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .preset-chip {
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-surface-alt);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-chip.active, .preset-chip:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .date-inputs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .input-field {
+      width: 100%;
+      padding: 6px 9px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-alt);
+      color: var(--text-primary);
+      font-size: 12px;
+      outline: none;
+    }
+    .input-field:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    .checklist-box {
+      max-height: 156px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-alt);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .check-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12.5px;
+      user-select: none;
+    }
+    .check-item:hover { background: var(--bg-hover); }
+
+    .check-item-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .check-item-left span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .check-item input[type="checkbox"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .check-count {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    /* Main Content */
+    .main-content {
+      flex: 1;
+      min-width: 0;
+      padding: 20px 24px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Banner / Status Strip */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+    }
+
+    .status-bar-left {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .cross-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 12px;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+    .cross-pill button {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      font-weight: 700;
+      padding: 0 2px;
+      line-height: 1;
+    }
+
+    .warning-banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      background: var(--warning-soft);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: var(--text-primary);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    /* =========================================================================
+       4. KPI CARDS
+       ========================================================================= */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 15px 16px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .kpi-card:hover { border-color: var(--border-strong); }
+
+    .kpi-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .kpi-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .kpi-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+    }
+
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .badge-up {
+      color: var(--success);
+      background: var(--success-soft);
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11.5px;
+    }
+
+    .badge-down {
+      color: var(--danger);
+      background: var(--danger-soft);
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11.5px;
+    }
+
+    /* =========================================================================
+       5. INSIGHTS PANEL
+       ========================================================================= */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .insights-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .insight-item {
+      background: var(--bg-surface-alt);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 13px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .insight-tag {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+    }
+
+    .insight-text {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .insight-text strong { color: var(--text-primary); }
+
+    /* =========================================================================
+       6. CHARTS GRID & HEATMAP
+       ========================================================================= */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .col-span-8 { grid-column: span 8; }
+    .col-span-6 { grid-column: span 6; }
+    .col-span-4 { grid-column: span 4; }
+    .col-span-12 { grid-column: span 12; }
+
+    .chart-box {
+      position: relative;
+      height: 300px;
+      width: 100%;
+    }
+
+    .segmented {
+      display: inline-flex;
+      background: var(--bg-surface-alt);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .seg-btn {
+      border: none;
+      background: transparent;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .seg-btn.active {
+      background: var(--bg-surface);
+      color: var(--accent);
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Heatmap */
+    .heatmap-wrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .heatmap-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 4px;
+      min-width: 620px;
+    }
+
+    .heatmap-table th {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 4px;
+    }
+
+    .heatmap-table th.row-label {
+      text-align: right;
+      padding-right: 10px;
+      width: 48px;
+    }
+
+    .heatmap-cell {
+      height: 30px;
+      border-radius: 5px;
+      text-align: center;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, outline 0.1s;
+      position: relative;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .heatmap-cell:hover {
+      transform: scale(1.06);
+      outline: 2px solid var(--text-primary);
+      z-index: 2;
+    }
+
+    .heatmap-cell.active-cell {
+      outline: 2px solid var(--warning);
+    }
+
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+
+    /* =========================================================================
+       7. DATA TABLE & PAGINATION
+       ========================================================================= */
+    .table-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      min-width: 820px;
+    }
+
+    table.data-table thead th {
+      background: var(--bg-surface-alt);
+      color: var(--text-secondary);
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    table.data-table thead th:hover { color: var(--text-primary); }
+    table.data-table thead th.num, table.data-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    table.data-table tbody td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+      white-space: nowrap;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    table.data-table tbody tr:last-child td { border-bottom: none; }
+    table.data-table tbody tr:hover { background: var(--bg-hover); }
+
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+    }
+
+    .pagination-btns {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* =========================================================================
+       8. EMPTY STATE, LOADING OVERLAY, MODAL & TOOLTIP
+       ========================================================================= */
+    .empty-state {
+      text-align: center;
+      padding: 56px 24px;
+      background: var(--bg-surface);
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .loading-overlay.visible { display: flex; }
+
+    .loading-card {
+      background: var(--bg-surface);
+      padding: 24px 32px;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-align: center;
+    }
+
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border: 3px solid var(--border-color);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(2px);
+      z-index: 80;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.visible { display: flex; }
+
+    .modal {
+      width: 100%;
+      max-width: 900px;
+      max-height: 90vh;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .modal-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-surface-alt);
+    }
+
+    .tab-btn {
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      background: var(--bg-surface-alt);
+    }
+
+    .dropzone {
+      border: 2px dashed var(--border-strong);
+      border-radius: var(--radius-md);
+      padding: 34px 20px;
+      text-align: center;
+      background: var(--bg-surface-alt);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .mapping-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 10px;
+    }
+
+    .mapping-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+    }
+    .mapping-field label {
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .req-star { color: var(--danger); }
+
+    .alert {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12.5px;
+      border: 1px solid;
+    }
+    .alert-error { background: var(--danger-soft); border-color: var(--danger); }
+    .alert-info { background: var(--info-soft); border-color: var(--info); }
+    .alert-success { background: var(--success-soft); border-color: var(--success); }
+
+    pre.code-block {
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-alt);
+      border: 1px solid var(--border-color);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    /* Floating heatmap tooltip */
+    .floating-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 95;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      box-shadow: var(--shadow-md);
+      display: none;
+      white-space: nowrap;
+    }
+
+    /* =========================================================================
+       9. RESPONSIVE BREAKPOINTS
+       ========================================================================= */
+    @media (max-width: 1280px) {
+      .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 1024px) {
+      .col-span-8, .col-span-6, .col-span-4 { grid-column: span 12; }
+    }
+
+    @media (max-width: 860px) {
+      .mobile-menu-btn { display: inline-flex; }
+      .dataset-pill { display: none; }
+      .sidebar {
+        position: fixed;
+        left: -310px;
+        top: var(--header-height);
+        height: calc(100vh - var(--header-height));
+        transition: left 0.22s ease;
+        box-shadow: var(--shadow-lg);
+      }
+      .sidebar.open { left: 0; }
+      .sidebar-backdrop {
+        position: fixed;
+        inset: var(--header-height) 0 0 0;
+        background: rgba(15, 23, 42, 0.45);
+        z-index: 25;
+        display: none;
+      }
+      .sidebar-backdrop.visible { display: block; }
+      .main-content { padding: 14px; }
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .insights-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 520px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+      .btn-label-hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay" role="status" aria-live="polite">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <div id="loadingMessage" style="font-weight: 600;">Processing dataset…</div>
+      <div style="font-size: 12px; color: var(--text-muted);">Aggregating metrics &amp; updating charts</div>
+    </div>
+  </div>
+
+  <!-- Floating Tooltip for Heatmap -->
+  <div id="heatmapTooltip" class="floating-tooltip"></div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <button id="mobileSidebarBtn" class="btn btn-ghost mobile-menu-btn" aria-label="Toggle filters">
+        ☰
+      </button>
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">📊</div>
+        <span>PulseBI</span>
+      </div>
+      <div id="datasetPill" class="dataset-pill" title="Active dataset">
+        <span class="dataset-dot"></span>
+        <span id="datasetLabel">Sample Data · 520 rows</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="openImportBtn" class="btn btn-primary">
+        <span>⬆</span>
+        <span>Import / Data Source</span>
+      </button>
+      <button id="loadSampleBtn" class="btn" title="Restore built-in sample dataset">
+        <span>↺</span>
+        <span class="btn-label-hide-sm">Sample Data</span>
+      </button>
+      <button id="exportCsvBtn" class="btn" title="Export currently filtered rows as CSV">
+        <span>⬇</span>
+        <span class="btn-label-hide-sm">Export CSV</span>
+      </button>
+      <button id="themeToggleBtn" class="btn" aria-label="Toggle light/dark mode" title="Toggle Light / Dark Mode">
+        <span id="themeIcon">🌙</span>
+      </button>
+    </div>
+  </header>
+
+  <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
+  <div class="app-shell">
+    <!-- Filter Sidebar -->
+    <aside id="sidebar" class="sidebar" aria-label="Dashboard Filters">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Filters &amp; Slicers</span>
+        <button id="resetFiltersBtn" class="btn btn-sm">Reset All</button>
+      </div>
+
+      <!-- Date Range -->
+      <div class="filter-group">
+        <div class="filter-label-row">
+          <span>Date Range</span>
+        </div>
+        <div id="datePresets" class="date-presets">
+          <button class="preset-chip active" data-preset="all">All</button>
+          <button class="preset-chip" data-preset="3m">3M</button>
+          <button class="preset-chip" data-preset="6m">6M</button>
+          <button class="preset-chip" data-preset="12m">12M</button>
+          <button class="preset-chip" data-preset="ytd">YTD</button>
+        </div>
+        <div class="date-inputs">
+          <input id="dateStartInput" type="date" class="input-field" aria-label="Start date" />
+          <input id="dateEndInput" type="date" class="input-field" aria-label="End date" />
+        </div>
+      </div>
+
+      <!-- Category Multi-Select -->
+      <div class="filter-group">
+        <div class="filter-label-row">
+          <span>Category</span>
+          <div class="filter-quick-links">
+            <button class="link-btn" data-select-all="categories">All</button>
+            <button class="link-btn" data-select-none="categories">None</button>
+          </div>
+        </div>
+        <div id="categoryFilterList" class="checklist-box"></div>
+      </div>
+
+      <!-- Region Multi-Select -->
+      <div class="filter-group">
+        <div class="filter-label-row">
+          <span>Region</span>
+          <div class="filter-quick-links">
+            <button class="link-btn" data-select-all="regions">All</button>
+            <button class="link-btn" data-select-none="regions">None</button>
+          </div>
+        </div>
+        <div id="regionFilterList" class="checklist-box"></div>
+      </div>
+
+      <!-- Product Multi-Select with Search -->
+      <div class="filter-group">
+        <div class="filter-label-row">
+          <span>Product</span>
+          <div class="filter-quick-links">
+            <button class="link-btn" data-select-all="products">All</button>
+            <button class="link-btn" data-select-none="products">None</button>
+          </div>
+        </div>
+        <input id="productFilterSearch" type="search" class="input-field" placeholder="Search products…" />
+        <div id="productFilterList" class="checklist-box"></div>
+      </div>
+    </aside>
+
+    <!-- Main Dashboard -->
+    <main class="main-content">
+      <!-- Status & Cross-Filter Bar -->
+      <div class="status-bar">
+        <div class="status-bar-left">
+          <span id="filterSummaryText" style="font-weight: 600;">Showing 0 of 0 records</span>
+          <span style="color: var(--text-muted);">• Click any chart bar, slice, or heatmap cell to cross-filter</span>
+          <div id="crossFilterPills" style="display: inline-flex; flex-wrap: wrap; gap: 6px;"></div>
+        </div>
+        <div id="dateSpanLabel" style="color: var(--text-muted); font-size: 12px;"></div>
+      </div>
+
+      <div id="dataQualityBanner" class="warning-banner" style="display: none;">
+        <span id="dataQualityText"></span>
+        <button id="dismissQualityBtn" class="btn btn-sm">Dismiss</button>
+      </div>
+
+      <!-- Empty State -->
+      <section id="emptyState" class="empty-state" style="display: none;">
+        <div style="font-size: 36px;">🔍</div>
+        <h2 style="margin: 0; font-size: 18px;">No matching sales records</h2>
+        <p style="margin: 0; color: var(--text-muted); max-width: 420px;">
+          Your current filters or cross-filters match zero transactions. Clear some filters or import a different dataset.
+        </p>
+        <button id="emptyResetBtn" class="btn btn-primary">Reset All Filters</button>
+      </section>
+
+      <!-- Dashboard Body (hidden when empty) -->
+      <div id="dashboardBody" style="display: flex; flex-direction: column; gap: 20px;">
+
+        <!-- KPI Cards -->
+        <section class="kpi-grid" aria-label="Key Performance Indicators">
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">Total Revenue</span>
+              <span class="kpi-icon">💰</span>
+            </div>
+            <div id="kpiRevenue" class="kpi-value">$0</div>
+            <div id="kpiRevenueSub" class="kpi-sub">Gross sales</div>
+          </article>
+
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">Total Orders</span>
+              <span class="kpi-icon">🧾</span>
+            </div>
+            <div id="kpiOrders" class="kpi-value">0</div>
+            <div id="kpiOrdersSub" class="kpi-sub">Unique orders</div>
+          </article>
+
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">Avg Order Value</span>
+              <span class="kpi-icon">🛒</span>
+            </div>
+            <div id="kpiAov" class="kpi-value">$0</div>
+            <div id="kpiAovSub" class="kpi-sub">Revenue / order</div>
+          </article>
+
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">Units Sold</span>
+              <span class="kpi-icon">📦</span>
+            </div>
+            <div id="kpiUnits" class="kpi-value">0</div>
+            <div id="kpiUnitsSub" class="kpi-sub">Total quantity</div>
+          </article>
+
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">Profit Margin</span>
+              <span class="kpi-icon">📈</span>
+            </div>
+            <div id="kpiMargin" class="kpi-value">N/A</div>
+            <div id="kpiMarginSub" class="kpi-sub">Based on Cost</div>
+          </article>
+
+          <article class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">MoM Growth</span>
+              <span class="kpi-icon">⚡</span>
+            </div>
+            <div id="kpiMom" class="kpi-value">—</div>
+            <div id="kpiMomSub" class="kpi-sub">Latest vs prior month</div>
+          </article>
+        </section>
+
+        <!-- Auto-Generated Business Insights -->
+        <section class="card" aria-label="Auto-Generated Insights">
+          <div class="card-header">
+            <div class="card-title">
+              <span>💡 Auto-Generated Business Insights</span>
+              <span class="card-subtitle">Computed dynamically from filtered data</span>
+            </div>
+          </div>
+          <div id="insightsGrid" class="insights-grid"></div>
+        </section>
+
+        <!-- Charts Grid -->
+        <section class="charts-grid" aria-label="Visualizations">
+          <!-- Line Chart: Revenue Trend -->
+          <div class="card col-span-8">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Revenue Trend Over Time</div>
+                <div class="card-subtitle">Click a point to cross-filter by time period</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                  <input id="toggleForecastChk" type="checkbox" checked style="accent-color: var(--accent);" />
+                  <span>3M Forecast</span>
+                </label>
+                <div id="granularityToggle" class="segmented" role="group" aria-label="Time granularity">
+                  <button class="seg-btn" data-granularity="daily">Daily</button>
+                  <button class="seg-btn active" data-granularity="monthly">Monthly</button>
+                  <button class="seg-btn" data-granularity="quarterly">Quarterly</button>
+                </div>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="trendChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Donut Chart: Category Share -->
+          <div class="card col-span-4">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Revenue by Category</div>
+                <div class="card-subtitle">Click slice to cross-filter</div>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="categoryChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Bar Chart: Top 10 Products -->
+          <div class="card col-span-6">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Top 10 Products by Revenue</div>
+                <div class="card-subtitle">Click bar to cross-filter by product</div>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="productChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Horizontal Bar Chart: Revenue by Region -->
+          <div class="card col-span-6">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Revenue by Region</div>
+                <div class="card-subtitle">Click bar to cross-filter by region</div>
+              </div>
+            </div>
+            <div class="chart-box">
+              <canvas id="regionChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Heatmap: Sales by Month and Weekday -->
+          <div class="card col-span-12">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Sales Heatmap: Month × Weekday</div>
+                <div class="card-subtitle">Hover for exact revenue &amp; orders · Click any cell to cross-filter</div>
+              </div>
+              <div class="heatmap-legend">
+                <span>Low</span>
+                <span class="legend-swatch" style="background: var(--heatmap-0); border: 1px solid var(--border-color);"></span>
+                <span class="legend-swatch" style="background: var(--heatmap-1);"></span>
+                <span class="legend-swatch" style="background: var(--heatmap-2);"></span>
+                <span class="legend-swatch" style="background: var(--heatmap-3);"></span>
+                <span class="legend-swatch" style="background: var(--heatmap-4);"></span>
+                <span>High</span>
+              </div>
+            </div>
+            <div id="heatmapContainer" class="heatmap-wrap"></div>
+          </div>
+        </section>
+
+        <!-- Sortable & Searchable Data Table -->
+        <section class="card" aria-label="Transactions Table">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Sales Transactions</div>
+              <div id="tableSubtitle" class="card-subtitle">Click column headers to sort</div>
+            </div>
+            <div class="table-controls">
+              <input id="tableSearchInput" type="search" class="input-field" style="width: 230px;" placeholder="Search order, customer, product…" />
+              <select id="pageSizeSelect" class="input-field" style="width: auto;" aria-label="Rows per page">
+                <option value="10" selected>10 / page</option>
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+                <option value="100">100 / page</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr id="tableHeadRow">
+                  <th data-sort="orderId">Order ID</th>
+                  <th data-sort="dateMs">Date</th>
+                  <th data-sort="product">Product</th>
+                  <th data-sort="category">Category</th>
+                  <th data-sort="region">Region</th>
+                  <th data-sort="customer">Customer</th>
+                  <th data-sort="quantity" class="num">Qty</th>
+                  <th data-sort="unitPrice" class="num">Unit Price</th>
+                  <th data-sort="revenue" class="num">Revenue</th>
+                  <th data-sort="cost" class="num">Cost</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination-bar">
+            <span id="paginationInfo">Showing 0–0 of 0</span>
+            <div class="pagination-btns">
+              <button id="firstPageBtn" class="btn btn-sm">« First</button>
+              <button id="prevPageBtn" class="btn btn-sm">‹ Prev</button>
+              <span id="pageIndicator" style="padding: 0 6px; font-weight: 600;">Page 1 of 1</span>
+              <button id="nextPageBtn" class="btn btn-sm">Next ›</button>
+              <button id="lastPageBtn" class="btn btn-sm">Last »</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Import / Data Source Modal -->
+  <div id="importModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="importModalTitle" style="margin: 0; font-size: 16px;">Import Sales Data &amp; Sources</h2>
+        <button id="closeImportModalBtn" class="btn btn-ghost btn-sm" aria-label="Close modal">✕</button>
+      </div>
+
+      <div class="modal-tabs" role="tablist">
+        <button class="tab-btn active" data-tab="upload">📁 CSV / Excel Upload</button>
+        <button class="tab-btn" data-tab="mapping">🧭 Column Mapping &amp; Preview</button>
+        <button class="tab-btn" data-tab="database">🗄️ Database / REST API</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Tab 1: File Upload -->
+        <div id="tab-upload" class="tab-pane" style="display: flex; flex-direction: column; gap: 14px;">
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <div style="font-size: 28px; margin-bottom: 6px;">📄</div>
+            <div style="font-weight: 600; font-size: 15px;">Drag &amp; drop a CSV or Excel (.xlsx / .xls) file here</div>
+            <div style="color: var(--text-muted); font-size: 12.5px; margin: 4px 0 12px;">
+              Processed 100% locally in your browser — no data ever leaves your device.
+            </div>
+            <button id="browseFileBtn" type="button" class="btn btn-primary">Choose File</button>
+            <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+          </div>
+
+          <div class="alert alert-info">
+            <strong>Expected columns:</strong>
+            <code>Order ID</code>, <code>Date</code>, <code>Product</code>, <code>Category</code>, <code>Region</code>,
+            <code>Customer</code>, <code>Quantity</code>, <code>Unit Price</code>, <code>Revenue</code>, <code>Cost</code> (optional).
+            Column names are auto-detected and can be adjusted in the <em>Column Mapping &amp; Preview</em> tab.
+          </div>
+
+          <div id="uploadStatusArea"></div>
+        </div>
+
+        <!-- Tab 2: Mapping & Preview -->
+        <div id="tab-mapping" class="tab-pane" style="display: none; flex-direction: column; gap: 14px;">
+          <div id="mappingEmptyNote" class="alert alert-info">
+            Upload a CSV/Excel file first (or fetch from a REST API) to review column mappings and preview the first 10 rows.
+          </div>
+          <div id="mappingControlsWrap" style="display: none; flex-direction: column; gap: 14px;">
+            <div>
+              <div style="font-weight: 700; margin-bottom: 8px;">Auto-Detected Column Mapping</div>
+              <div id="mappingGrid" class="mapping-grid"></div>
+            </div>
+            <div id="mappingValidationMsg"></div>
+            <div>
+              <div style="font-weight: 700; margin-bottom: 6px;">Preview (First 10 Raw Rows)</div>
+              <div class="table-wrap" style="max-height: 260px;">
+                <table id="previewTable" class="data-table"></table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Database / REST API -->
+        <div id="tab-database" class="tab-pane" style="display: none; flex-direction: column; gap: 14px;">
+          <div class="alert alert-info">
+            Because this dashboard is a <strong>zero-backend single HTML file</strong>, browsers cannot open raw TCP sockets directly to SQL databases.
+            Connect your database in one of two ways below:
+          </div>
+
+          <div>
+            <h3 style="margin: 0 0 6px; font-size: 14px;">Option A: Export a SQL Query Result to CSV</h3>
+            <p style="margin: 0 0 8px; color: var(--text-secondary); font-size: 12.5px;">
+              Run a query like this in Postgres, MySQL, SQLite, Snowflake, or SQL Server, export as <code>.csv</code>, and drop it into the Upload tab:
+            </p>
+            <pre class="code-block">SELECT
+  o.order_id        AS "Order ID",
+  o.order_date      AS "Date",
+  p.product_name    AS "Product",
+  p.category        AS "Category",
+  c.region          AS "Region",
+  c.customer_name   AS "Customer",
+  oi.quantity       AS "Quantity",
+  oi.unit_price     AS "Unit Price",
+  (oi.quantity * oi.unit_price) AS "Revenue",
+  (oi.quantity * p.unit_cost)   AS "Cost"
+FROM orders o
+JOIN order_items oi ON oi.order_id = o.order_id
+JOIN products p     ON p.product_id = oi.product_id
+JOIN customers c    ON c.customer_id = o.customer_id
+WHERE o.order_date >= CURRENT_DATE - INTERVAL '24 months';</pre>
+          </div>
+
+          <div>
+            <h3 style="margin: 0 0 6px; font-size: 14px;">Option B: Load Directly from a REST API Endpoint (JSON or CSV)</h3>
+            <p style="margin: 0 0 8px; color: var(--text-secondary); font-size: 12.5px;">
+              Expose a read-only HTTPS endpoint (with CORS enabled) returning a JSON array of objects or CSV text, and paste the URL below or customize <code>fetchSalesFromAPI()</code> in the source code:
+            </p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <input id="apiUrlInput" type="url" class="input-field" style="flex: 1; min-width: 240px;" placeholder="https://api.example.com/v1/sales?limit=1000" />
+              <button id="fetchApiBtn" type="button" class="btn btn-primary">Fetch &amp; Preview</button>
+            </div>
+            <div id="apiStatusArea" style="margin-top: 8px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="cancelImportBtn" class="btn">Close</button>
+        <button id="applyImportBtn" class="btn btn-primary" disabled>Apply Data to Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* =========================================================================
+       PULSEBI — SINGLE-FILE SALES & REVENUE ANALYSIS DASHBOARD
+       =========================================================================
+       Architecture (organized into clear functional modules):
+         1. Configuration & Application State
+         2. Formatters & Utility Helpers
+         3. Built-in Sample Data Generator (~520 rows, 18 months)
+         4. Parsing, Auto-Column Detection, Validation & Database/API Adapter
+         5. Filtering & Cross-Filtering Engine
+         6. KPI & Insights Calculation (including Pareto & Linear Trend Forecast)
+         7. Chart.js Visualizations, Heatmap & Data Table Rendering
+         8. CSV Export, Theme & UI Event Wiring
+       ========================================================================= */
+
+    (function () {
+      "use strict";
+
+      /* -----------------------------------------------------------------------
+         1. CONFIGURATION & APPLICATION STATE
+         ----------------------------------------------------------------------- */
+      const SCHEMA_FIELDS = [
+        { key: "orderId",   label: "Order ID",   required: false, aliases: ["order id", "order_id", "orderid", "id", "invoice", "transaction id", "tx_id"] },
+        { key: "date",      label: "Date",       required: true,  aliases: ["date", "order date", "order_date", "tx_date", "sale date", "created_at", "timestamp"] },
+        { key: "product",   label: "Product",    required: true,  aliases: ["product", "product name", "product_name", "item", "sku", "item name"] },
+        { key: "category",  label: "Category",   required: false, aliases: ["category", "product category", "dept", "department", "segment", "group"] },
+        { key: "region",    label: "Region",     required: false, aliases: ["region", "territory", "country", "area", "market", "location", "state"] },
+        { key: "customer",  label: "Customer",   required: false, aliases: ["customer", "customer name", "customer_name", "client", "account", "buyer"] },
+        { key: "quantity",  label: "Quantity",   required: false, aliases: ["quantity", "qty", "units", "count", "volume"] },
+        { key: "unitPrice", label: "Unit Price", required: false, aliases: ["unit price", "unit_price", "price", "rate", "unitprice"] },
+        { key: "revenue",   label: "Revenue",    required: false, aliases: ["revenue", "sales", "total", "amount", "gross sales", "net sales", "total price"] },
+        { key: "cost",      label: "Cost",       required: false, aliases: ["cost", "cogs", "unit cost", "total cost", "expense"] }
+      ];
+
+      const PALETTE = [
+        "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899",
+        "#8b5cf6", "#14b8a6", "#f97316", "#64748b", "#06b6d4"
+      ];
+
+      const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+      const state = {
+        rawData: [],           // Normalized valid sales rows currently loaded
+        filteredData: [],      // Rows after sidebar filters + cross-filters
+        datasetName: "Sample Data",
+        hasCostData: true,
+        skippedRowsCount: 0,
+
+        // Available distinct facet values sorted alphabetically
+        facets: {
+          categories: [],
+          regions: [],
+          products: [],
+          minDateStr: "",
+          maxDateStr: ""
+        },
+
+        // Sidebar filter state
+        filters: {
+          dateStart: "",
+          dateEnd: "",
+          datePreset: "all",
+          categories: new Set(),
+          regions: new Set(),
+          products: new Set(),
+          productSearch: ""
+        },
+
+        // Cross-filter state triggered by clicking chart elements
+        crossFilters: {
+          category: null,
+          region: null,
+          product: null,
+          periodKey: null,     // e.g. "2026-03" or "2026-Q1" or "2026-03-14"
+          periodGranularity: null,
+          monthIndex: null,    // 0..11 from heatmap
+          weekdayIndex: null   // 0..6 (Mon..Sun) from heatmap
+        },
+
+        // Visualization options
+        granularity: "monthly", // "daily" | "monthly" | "quarterly"
+        showForecast: true,
+
+        // Table state
+        table: {
+          search: "",
+          sortKey: "dateMs",
+          sortDir: "desc",
+          page: 1,
+          pageSize: 10
+        },
+
+        // Pending import staging (before clicking "Apply Data")
+        staging: {
+          headers: [],
+          rows: [],
+          mapping: {},
+          filename: ""
+        },
+
+        // Chart.js instances
+        charts: {
+          trend: null,
+          category: null,
+          product: null,
+          region: null
+        }
+      };
+
+      /* -----------------------------------------------------------------------
+         2. FORMATTERS & UTILITY HELPERS
+         ----------------------------------------------------------------------- */
+      function formatCurrency(val, compact = false) {
+        if (!Number.isFinite(val)) return "$0";
+        if (compact && Math.abs(val) >= 1000) {
+          return new Intl.NumberFormat("en-US", {
+            style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1
+          }).format(val);
+        }
+        return new Intl.NumberFormat("en-US", {
+          style: "currency", currency: "USD", maximumFractionDigits: Math.abs(val) < 100 ? 2 : 0
+        }).format(val);
+      }
+
+      function formatNumber(val) {
+        if (!Number.isFinite(val)) return "0";
+        return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(val);
+      }
+
+      function formatPercent(val, decimals = 1) {
+        if (!Number.isFinite(val)) return "N/A";
+        return `${val.toFixed(decimals)}%`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function toIsoDate(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      }
+
+      function showLoading(message = "Processing dataset…") {
+        document.getElementById("loadingMessage").textContent = message;
+        document.getElementById("loadingOverlay").classList.add("visible");
+      }
+
+      function hideLoading() {
+        document.getElementById("loadingOverlay").classList.remove("visible");
+      }
+
+      /**
+       * Parses numeric strings safely, handling "$", ",", spaces, and "(123.45)" negatives.
+       */
+      function parseNumberSafe(raw) {
+        if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
+        if (raw === null || raw === undefined) return NaN;
+        let s = String(raw).trim();
+        if (!s) return NaN;
+        let isNeg = false;
+        if (s.startsWith("(") && s.endsWith(")")) {
+          isNeg = true;
+          s = s.slice(1, -1);
+        }
+        s = s.replace(/[$€£¥,\s]/g, "");
+        const n = Number(s);
+        if (!Number.isFinite(n)) return NaN;
+        return isNeg ? -n : n;
+      }
+
+      /**
+       * Robust date parser supporting Date objects, Excel serial numbers,
+       * ISO YYYY-MM-DD, and common US/slash formats. Returns null on invalid dates.
+       */
+      function parseDateSafe(raw) {
+        if (raw instanceof Date) {
+          return Number.isNaN(raw.getTime()) ? null : new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
+        }
+        if (typeof raw === "number" && Number.isFinite(raw) && raw > 1 && raw < 100000) {
+          // Excel serial date (epoch 1899-12-30)
+          const utcDays = Math.floor(raw - 25569);
+          const d = new Date(utcDays * 86400 * 1000);
+          return Number.isNaN(d.getTime()) ? null : new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+        }
+        if (typeof raw !== "string") return null;
+        const s = raw.trim();
+        if (!s) return null;
+
+        // Match YYYY-MM-DD or YYYY/MM/DD explicitly to avoid UTC timezone shift
+        const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s].*)?$/);
+        if (isoMatch) {
+          const y = Number(isoMatch[1]);
+          const m = Number(isoMatch[2]);
+          const d = Number(isoMatch[3]);
+          const dt = new Date(y, m - 1, d);
+          if (dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d) return dt;
+          return null;
+        }
+
+        // Match MM/DD/YYYY or MM-DD-YYYY
+        const usMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s.*)?$/);
+        if (usMatch) {
+          const a = Number(usMatch[1]);
+          const b = Number(usMatch[2]);
+          const y = Number(usMatch[3]);
+          // Support DD/MM/YYYY fallback if first segment > 12
+          const m = a > 12 ? b : a;
+          const d = a > 12 ? a : b;
+          const dt = new Date(y, m - 1, d);
+          if (dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d) return dt;
+          return null;
+        }
+
+        const parsed = new Date(s);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      }
+
+      /* -----------------------------------------------------------------------
+         3. BUILT-IN SAMPLE DATA GENERATOR (~520 ROWS, 18 MONTHS)
+         ----------------------------------------------------------------------- */
+      function generateSampleData() {
+        // Seeded PRNG (Mulberry32) for deterministic realistic results
+        let seed = 20261125;
+        const rand = () => {
+          seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+          let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+
+        const catalog = [
+          { product: "CloudSync Enterprise",  category: "Software",    price: 1200, costRatio: 0.22, weight: 1.5 },
+          { product: "Analytics Pro Suite",   category: "Software",    price: 850,  costRatio: 0.24, weight: 1.7 },
+          { product: "SecureVault Shield",    category: "Software",    price: 490,  costRatio: 0.25, weight: 1.3 },
+          { product: "UltraBook X1 Carbon",   category: "Hardware",    price: 1650, costRatio: 0.68, weight: 1.2 },
+          { product: "ErgoDesk Standing Pro", category: "Furniture",   price: 680,  costRatio: 0.56, weight: 1.0 },
+          { product: "MeshChair Aero",        category: "Furniture",   price: 440,  costRatio: 0.54, weight: 1.1 },
+          { product: "4K Studio Monitor",     category: "Hardware",    price: 590,  costRatio: 0.64, weight: 1.4 },
+          { product: "Thunderbolt Dock G4",   category: "Accessories", price: 240,  costRatio: 0.48, weight: 1.6 },
+          { product: "NoiseCancel Headset",   category: "Accessories", price: 195,  costRatio: 0.44, weight: 1.8 },
+          { product: "MechKey Wireless",      category: "Accessories", price: 135,  costRatio: 0.42, weight: 1.4 },
+          { product: "Onboarding Workshop",   category: "Services",    price: 1500, costRatio: 0.38, weight: 0.7 },
+          { product: "24/7 SLA Support Pack", category: "Services",    price: 920,  costRatio: 0.32, weight: 0.9 },
+          { product: "USB-C Travel Hub",      category: "Accessories", price: 65,   costRatio: 0.40, weight: 1.5 },
+          { product: "Acoustic Pod Mini",     category: "Furniture",   price: 2100, costRatio: 0.61, weight: 0.45 }
+        ];
+
+        const regions = [
+          { name: "North America", weight: 0.38 },
+          { name: "Europe",        weight: 0.28 },
+          { name: "Asia Pacific",  weight: 0.22 },
+          { name: "Latin America", weight: 0.12 }
+        ];
+
+        const customers = [
+          "Acme Corp", "Northwind Traders", "Globex Systems", "Initech Labs",
+          "Stark Industries", "Wayne Logistics", "BlueOcean Retail", "Apex Financial",
+          "Summit Health", "Vanguard Media", "Solstice Energy", "Vertex Bio",
+          "Horizon Manufacturing", "Cascade Tech", "Orion Aerospace", "Meridian Group"
+        ];
+
+        const pickWeighted = (items) => {
+          const total = items.reduce((s, it) => s + it.weight, 0);
+          let r = rand() * total;
+          for (const it of items) {
+            r -= it.weight;
+            if (r <= 0) return it;
+          }
+          return items[items.length - 1];
+        };
+
+        // 18 months ending at 2026-11-25
+        const endDate = new Date(2026, 10, 25);
+        const startDate = new Date(2025, 5, 1); // June 2025 -> Nov 2026 (18 months)
+        const totalDays = Math.round((endDate - startDate) / 86400000);
+
+        const rows = [];
+        const totalRows = 520;
+
+        for (let i = 1; i <= totalRows; i++) {
+          // Slight upward trend over time + seasonality (Q4 bump)
+          const u = rand();
+          const biasedProgress = Math.pow(u, 0.85); // slightly denser in recent months
+          let dayOffset = Math.floor(biasedProgress * totalDays);
+
+          const dt = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + dayOffset);
+          // Bias toward weekdays (Mon-Fri)
+          const dow = dt.getDay();
+          if ((dow === 0 || dow === 6) && rand() < 0.55) {
+            dt.setDate(dt.getDate() - (dow === 0 ? 2 : 1));
+          }
+
+          const item = pickWeighted(catalog);
+          const reg = pickWeighted(regions);
+          const customer = customers[Math.floor(rand() * customers.length)];
+
+          // Seasonality boost in Nov/Dec + slight annual growth
+          const month = dt.getMonth();
+          const q4Boost = (month === 10 || month === 11) ? 1.25 : 1.0;
+          const qtyBase = item.price > 1000 ? 1 + Math.floor(rand() * 4) : 1 + Math.floor(rand() * 8);
+          const quantity = Math.max(1, Math.round(qtyBase * q4Boost));
+          const discountFactor = 0.94 + rand() * 0.12;
+          const unitPrice = Math.round(item.price * discountFactor * 100) / 100;
+          const revenue = Math.round(quantity * unitPrice * 100) / 100;
+          const cost = Math.round(revenue * (item.costRatio + (rand() - 0.5) * 0.06) * 100) / 100;
+
+          rows.push({
+            orderId: `ORD-${String(10000 + i)}`,
+            date: dt,
+            dateStr: toIsoDate(dt),
+            dateMs: dt.getTime(),
+            yearMonth: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`,
+            quarter: `${dt.getFullYear()}-Q${Math.floor(dt.getMonth() / 3) + 1}`,
+            monthIndex: dt.getMonth(),
+            weekdayIndex: (dt.getDay() + 6) % 7, // 0=Mon .. 6=Sun
+            product: item.product,
+            category: item.category,
+            region: reg.name,
+            customer,
+            quantity,
+            unitPrice,
+            revenue,
+            cost
+          });
+        }
+
+        return rows;
+      }
+
+      /* -----------------------------------------------------------------------
+         4. DATA PARSING, AUTO-MAPPING, VALIDATION & DATABASE/API ADAPTER
+         ----------------------------------------------------------------------- */
+
+      /**
+       * Auto-detects best matching header column for each canonical schema field.
+       */
+      function autoDetectMapping(headers) {
+        const normalizedHeaders = headers.map(h => ({
+          raw: h,
+          norm: String(h).trim().toLowerCase().replace(/[_-]+/g, " ")
+        }));
+
+        const mapping = {};
+        const usedHeaders = new Set();
+
+        for (const field of SCHEMA_FIELDS) {
+          let match = null;
+          // Pass 1: exact alias match
+          for (const alias of field.aliases) {
+            const found = normalizedHeaders.find(h => !usedHeaders.has(h.raw) && h.norm === alias);
+            if (found) { match = found.raw; break; }
+          }
+          // Pass 2: substring match
+          if (!match) {
+            for (const alias of field.aliases) {
+              const found = normalizedHeaders.find(h => !usedHeaders.has(h.raw) && h.norm.includes(alias));
+              if (found) { match = found.raw; break; }
+            }
+          }
+          mapping[field.key] = match || "";
+          if (match) usedHeaders.add(match);
+        }
+        return mapping;
+      }
+
+      /**
+       * Validates column mapping and converts raw records into normalized rows.
+       */
+      function normalizeAndValidateRows(rawRows, mapping) {
+        const errors = [];
+        const warnings = [];
+
+        if (!rawRows || rawRows.length === 0) {
+          errors.push("The uploaded dataset contains 0 rows.");
+          return { validRows: [], errors, warnings, hasCost: false, skipped: 0 };
+        }
+
+        if (!mapping.date) errors.push("Missing required mapping for Date column.");
+        if (!mapping.product) errors.push("Missing required mapping for Product column.");
+
+        const hasRevenueCol = Boolean(mapping.revenue);
+        const hasQtyPrice = Boolean(mapping.quantity && mapping.unitPrice);
+        if (!hasRevenueCol && !hasQtyPrice) {
+          errors.push("You must map either a Revenue column, or both Quantity and Unit Price columns.");
+        }
+
+        if (errors.length > 0) {
+          return { validRows: [], errors, warnings, hasCost: false, skipped: 0 };
+        }
+
+        if (!hasRevenueCol && hasQtyPrice) {
+          warnings.push("Revenue column not mapped — computing Revenue = Quantity × Unit Price automatically.");
+        }
+
+        const validRows = [];
+        let badDateCount = 0;
+        let badNumericCount = 0;
+        let hasCost = Boolean(mapping.cost);
+        let costPopulatedCount = 0;
+
+        for (let i = 0; i < rawRows.length; i++) {
+          const r = rawRows[i];
+          const dt = parseDateSafe(r[mapping.date]);
+          if (!dt) {
+            badDateCount++;
+            continue;
+          }
+
+          const qtyRaw = mapping.quantity ? parseNumberSafe(r[mapping.quantity]) : 1;
+          const priceRaw = mapping.unitPrice ? parseNumberSafe(r[mapping.unitPrice]) : NaN;
+          let revRaw = mapping.revenue ? parseNumberSafe(r[mapping.revenue]) : NaN;
+
+          const quantity = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+          if (!Number.isFinite(revRaw)) {
+            if (Number.isFinite(priceRaw)) {
+              revRaw = quantity * priceRaw;
+            } else {
+              badNumericCount++;
+              continue;
+            }
+          }
+
+          const unitPrice = Number.isFinite(priceRaw) ? priceRaw : (quantity > 0 ? revRaw / quantity : revRaw);
+          let cost = NaN;
+          if (mapping.cost) {
+            const c = parseNumberSafe(r[mapping.cost]);
+            if (Number.isFinite(c)) {
+              cost = c;
+              costPopulatedCount++;
+            }
+          }
+
+          const product = String(r[mapping.product] ?? "").trim() || "Unspecified Product";
+          const category = mapping.category ? (String(r[mapping.category] ?? "").trim() || "Uncategorized") : "General";
+          const region = mapping.region ? (String(r[mapping.region] ?? "").trim() || "Unspecified") : "All Regions";
+          const customer = mapping.customer ? (String(r[mapping.customer] ?? "").trim() || "Walk-in / Unknown") : "N/A";
+          const orderId = mapping.orderId ? (String(r[mapping.orderId] ?? "").trim() || `ROW-${i + 1}`) : `ROW-${i + 1}`;
+
+          validRows.push({
+            orderId,
+            date: dt,
+            dateStr: toIsoDate(dt),
+            dateMs: dt.getTime(),
+            yearMonth: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`,
+            quarter: `${dt.getFullYear()}-Q${Math.floor(dt.getMonth() / 3) + 1}`,
+            monthIndex: dt.getMonth(),
+            weekdayIndex: (dt.getDay() + 6) % 7,
+            product,
+            category,
+            region,
+            customer,
+            quantity,
+            unitPrice,
+            revenue: revRaw,
+            cost
+          });
+        }
+
+        if (badDateCount > 0) {
+          warnings.push(`${badDateCount} row(s) skipped due to missing or invalid Date values.`);
+        }
+        if (badNumericCount > 0) {
+          warnings.push(`${badNumericCount} row(s) skipped due to missing/invalid Revenue and Unit Price.`);
+        }
+        if (validRows.length === 0) {
+          errors.push("No valid rows remained after validation. Please check your Date and Revenue column mappings.");
+        }
+
+        return {
+          validRows,
+          errors,
+          warnings,
+          hasCost: hasCost && costPopulatedCount > 0,
+          skipped: badDateCount + badNumericCount
+        };
+      }
+
+      /**
+       * Parses uploaded CSV (via PapaParse) or Excel (via SheetJS).
+       */
+      function parseUploadedFile(file) {
+        if (!file) return;
+        const ext = file.name.split(".").pop().toLowerCase();
+
+        if (!["csv", "xlsx", "xls"].includes(ext)) {
+          renderUploadAlert("error", `Unsupported file format ".${escapeHtml(ext)}". Please upload a .csv, .xlsx, or .xls file.`);
+          return;
+        }
+
+        showLoading(`Reading ${file.name}…`);
+
+        // Defer parsing slightly so loading spinner renders cleanly
+        setTimeout(() => {
+          if (ext === "csv") {
+            if (typeof Papa === "undefined") {
+              hideLoading();
+              renderUploadAlert("error", "PapaParse library could not load. Please check your internet connection.");
+              return;
+            }
+            Papa.parse(file, {
+              header: true,
+              skipEmptyLines: "greedy",
+              dynamicTyping: false,
+              complete: (results) => {
+                hideLoading();
+                const headers = results.meta?.fields || [];
+                if (headers.length === 0 || results.data.length === 0) {
+                  renderUploadAlert("error", "CSV file is empty or has no header row.");
+                  return;
+                }
+                stageParsedDataset(headers, results.data, file.name);
+              },
+              error: (err) => {
+                hideLoading();
+                renderUploadAlert("error", `CSV parse error: ${err.message}`);
+              }
+            });
+          } else {
+            if (typeof XLSX === "undefined") {
+              hideLoading();
+              renderUploadAlert("error", "SheetJS (XLSX) library could not load. Please check your internet connection.");
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: "array", cellDates: true });
+                const firstSheet = workbook.SheetNames[0];
+                if (!firstSheet) throw new Error("Workbook has no sheets.");
+                const sheet = workbook.Sheets[firstSheet];
+                const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+                if (jsonRows.length === 0) {
+                  hideLoading();
+                  renderUploadAlert("error", "The first Excel worksheet is empty.");
+                  return;
+                }
+                const headers = Object.keys(jsonRows[0]);
+                hideLoading();
+                stageParsedDataset(headers, jsonRows, file.name);
+              } catch (err) {
+                hideLoading();
+                renderUploadAlert("error", `Excel parse error: ${err.message}`);
+              }
+            };
+            reader.onerror = () => {
+              hideLoading();
+              renderUploadAlert("error", "Failed to read the selected file.");
+            };
+            reader.readAsArrayBuffer(file);
+          }
+        }, 50);
+      }
+
+      /**
+       * Optional REST API connector for JSON arrays or CSV endpoints.
+       * Expects a CORS-enabled URL returning either JSON (array or { data: [...] }) or CSV.
+       */
+      async function fetchSalesFromAPI(url) {
+        const apiArea = document.getElementById("apiStatusArea");
+        if (!url || !/^https?:\/\//i.test(url)) {
+          apiArea.innerHTML = `<div class="alert alert-error">Please enter a valid http:// or https:// endpoint URL.</div>`;
+          return;
+        }
+        apiArea.innerHTML = `<div class="alert alert-info">Fetching data from endpoint…</div>`;
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+          const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+
+          if (contentType.includes("json")) {
+            const payload = await resp.json();
+            const arr = Array.isArray(payload) ? payload : (Array.isArray(payload.data) ? payload.data : null);
+            if (!arr || arr.length === 0) throw new Error("JSON response did not contain a non-empty array.");
+            const headers = Object.keys(arr[0]);
+            apiArea.innerHTML = `<div class="alert alert-success">Loaded ${arr.length} rows from API. Review mapping &amp; preview next.</div>`;
+            stageParsedDataset(headers, arr, new URL(url).hostname);
+          } else {
+            const text = await resp.text();
+            if (typeof Papa === "undefined") throw new Error("PapaParse unavailable.");
+            const parsed = Papa.parse(text, { header: true, skipEmptyLines: "greedy" });
+            const headers = parsed.meta?.fields || [];
+            if (headers.length === 0 || parsed.data.length === 0) throw new Error("Response could not be parsed as CSV.");
+            apiArea.innerHTML = `<div class="alert alert-success">Loaded ${parsed.data.length} CSV rows from API.</div>`;
+            stageParsedDataset(headers, parsed.data, new URL(url).hostname);
+          }
+        } catch (err) {
+          apiArea.innerHTML = `<div class="alert alert-error">Failed to fetch API data: ${escapeHtml(err.message)} (check CORS headers and URL).</div>`;
+        }
+      }
+
+      /* -----------------------------------------------------------------------
+         5. FILTERING & CROSS-FILTERING ENGINE
+         ----------------------------------------------------------------------- */
+      function loadDatasetIntoDashboard(rows, name, hasCost, skippedCount = 0, warnings = []) {
+        state.rawData = rows;
+        state.datasetName = name;
+        state.hasCostData = hasCost;
+        state.skippedRowsCount = skippedCount;
+
+        // Compute available facets & min/max dates in a single pass
+        const catSet = new Set();
+        const regSet = new Set();
+        const prodSet = new Set();
+        let minMs = Infinity;
+        let maxMs = -Infinity;
+
+        for (const r of rows) {
+          catSet.add(r.category);
+          regSet.add(r.region);
+          prodSet.add(r.product);
+          if (r.dateMs < minMs) minMs = r.dateMs;
+          if (r.dateMs > maxMs) maxMs = r.dateMs;
+        }
+
+        state.facets.categories = Array.from(catSet).sort();
+        state.facets.regions = Array.from(regSet).sort();
+        state.facets.products = Array.from(prodSet).sort();
+        state.facets.minDateStr = Number.isFinite(minMs) ? toIsoDate(new Date(minMs)) : "";
+        state.facets.maxDateStr = Number.isFinite(maxMs) ? toIsoDate(new Date(maxMs)) : "";
+
+        // Update UI dataset pill & quality warnings
+        document.getElementById("datasetLabel").textContent = `${name} · ${formatNumber(rows.length)} rows`;
+        const banner = document.getElementById("dataQualityBanner");
+        if (warnings.length > 0) {
+          document.getElementById("dataQualityText").textContent = "⚠️ " + warnings.join(" ");
+          banner.style.display = "flex";
+        } else {
+          banner.style.display = "none";
+        }
+
+        resetAllFilters(false);
+        renderSidebarFilters();
+        refreshDashboard();
+      }
+
+      function resetAllFilters(shouldRefresh = true) {
+        state.filters.dateStart = state.facets.minDateStr;
+        state.filters.dateEnd = state.facets.maxDateStr;
+        state.filters.datePreset = "all";
+        state.filters.categories = new Set(state.facets.categories);
+        state.filters.regions = new Set(state.facets.regions);
+        state.filters.products = new Set(state.facets.products);
+        state.filters.productSearch = "";
+
+        clearCrossFilters(false);
+        state.table.page = 1;
+        state.table.search = "";
+        const searchEl = document.getElementById("tableSearchInput");
+        if (searchEl) searchEl.value = "";
+        const prodSearchEl = document.getElementById("productFilterSearch");
+        if (prodSearchEl) prodSearchEl.value = "";
+
+        if (shouldRefresh) {
+          renderSidebarFilters();
+          refreshDashboard();
+        }
+      }
+
+      function clearCrossFilters(shouldRefresh = true) {
+        state.crossFilters = {
+          category: null,
+          region: null,
+          product: null,
+          periodKey: null,
+          periodGranularity: null,
+          monthIndex: null,
+          weekdayIndex: null
+        };
+        if (shouldRefresh) refreshDashboard();
+      }
+
+      function applyFilters() {
+        const startMs = state.filters.dateStart ? parseDateSafe(state.filters.dateStart)?.getTime() ?? -Infinity : -Infinity;
+        const endMs = state.filters.dateEnd ? parseDateSafe(state.filters.dateEnd)?.getTime() ?? Infinity : Infinity;
+        const cf = state.crossFilters;
+
+        const out = [];
+        for (const r of state.rawData) {
+          if (r.dateMs < startMs || r.dateMs > endMs) continue;
+          if (!state.filters.categories.has(r.category)) continue;
+          if (!state.filters.regions.has(r.region)) continue;
+          if (!state.filters.products.has(r.product)) continue;
+
+          // Cross-filters
+          if (cf.category && r.category !== cf.category) continue;
+          if (cf.region && r.region !== cf.region) continue;
+          if (cf.product && r.product !== cf.product) continue;
+          if (cf.periodKey && cf.periodGranularity) {
+            const pKey = cf.periodGranularity === "daily" ? r.dateStr
+                       : cf.periodGranularity === "quarterly" ? r.quarter
+                       : r.yearMonth;
+            if (pKey !== cf.periodKey) continue;
+          }
+          if (cf.monthIndex !== null && r.monthIndex !== cf.monthIndex) continue;
+          if (cf.weekdayIndex !== null && r.weekdayIndex !== cf.weekdayIndex) continue;
+
+          out.push(r);
+        }
+        state.filteredData = out;
+      }
+
+      /* -----------------------------------------------------------------------
+         6. KPI & INSIGHTS CALCULATION (WITH PARETO & LINEAR REGRESSION)
+         ----------------------------------------------------------------------- */
+      function computeAnalytics(rows) {
+        let totalRevenue = 0;
+        let totalUnits = 0;
+        let totalCost = 0;
+        let revenueWithCost = 0;
+        let costRowCount = 0;
+        const orderSet = new Set();
+
+        const byMonth = new Map();
+        const byDay = new Map();
+        const byQuarter = new Map();
+        const byCategory = new Map();
+        const byProduct = new Map();
+        const byRegion = new Map();
+        // Heatmap: key "m-w" -> { rev, ordersSet }
+        const heatmap = Array.from({ length: 12 }, () =>
+          Array.from({ length: 7 }, () => ({ revenue: 0, orders: new Set() }))
+        );
+
+        for (const r of rows) {
+          totalRevenue += r.revenue;
+          totalUnits += r.quantity;
+          orderSet.add(r.orderId);
+
+          if (Number.isFinite(r.cost)) {
+            totalCost += r.cost;
+            revenueWithCost += r.revenue;
+            costRowCount++;
+          }
+
+          byMonth.set(r.yearMonth, (byMonth.get(r.yearMonth) || 0) + r.revenue);
+          byDay.set(r.dateStr, (byDay.get(r.dateStr) || 0) + r.revenue);
+          byQuarter.set(r.quarter, (byQuarter.get(r.quarter) || 0) + r.revenue);
+          byCategory.set(r.category, (byCategory.get(r.category) || 0) + r.revenue);
+          byProduct.set(r.product, (byProduct.get(r.product) || 0) + r.revenue);
+          byRegion.set(r.region, (byRegion.get(r.region) || 0) + r.revenue);
+
+          const cell = heatmap[r.monthIndex][r.weekdayIndex];
+          cell.revenue += r.revenue;
+          cell.orders.add(r.orderId);
+        }
+
+        const totalOrders = orderSet.size;
+        const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+        const hasCost = state.hasCostData && costRowCount > 0 && revenueWithCost > 0;
+        const totalProfit = hasCost ? revenueWithCost - totalCost : NaN;
+        const profitMargin = hasCost ? (totalProfit / revenueWithCost) * 100 : NaN;
+
+        // Sort monthly series chronologically for MoM growth & forecasting
+        const sortedMonths = Array.from(byMonth.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+        let momGrowth = NaN;
+        let momLabel = "Need 2+ months";
+        if (sortedMonths.length >= 2) {
+          const [prevMonth, prevVal] = sortedMonths[sortedMonths.length - 2];
+          const [currMonth, currVal] = sortedMonths[sortedMonths.length - 1];
+          if (prevVal > 0) {
+            momGrowth = ((currVal - prevVal) / prevVal) * 100;
+            momLabel = `${currMonth} vs ${prevMonth}`;
+          }
+        }
+
+        return {
+          totalRevenue,
+          totalOrders,
+          aov,
+          totalUnits,
+          totalProfit,
+          profitMargin,
+          hasCost,
+          momGrowth,
+          momLabel,
+          byMonth,
+          byDay,
+          byQuarter,
+          sortedMonths,
+          byCategory,
+          byProduct,
+          byRegion,
+          heatmap
+        };
+      }
+
+      /**
+       * Ordinary Least Squares (OLS) linear regression for 3-month revenue forecast.
+       */
+      function computeLinearForecast(sortedMonths, horizon = 3) {
+        const n = sortedMonths.length;
+        if (n < 2) return { points: [], slope: 0, r2: 0 };
+
+        let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (let i = 0; i < n; i++) {
+          const x = i;
+          const y = sortedMonths[i][1];
+          sumX += x;
+          sumY += y;
+          sumXY += x * y;
+          sumXX += x * x;
+        }
+
+        const denom = n * sumXX - sumX * sumX;
+        const slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+        const intercept = (sumY - slope * sumX) / n;
+
+        // R-squared goodness of fit
+        const meanY = sumY / n;
+        let ssTot = 0, ssRes = 0;
+        for (let i = 0; i < n; i++) {
+          const pred = intercept + slope * i;
+          ssTot += Math.pow(sortedMonths[i][1] - meanY, 2);
+          ssRes += Math.pow(sortedMonths[i][1] - pred, 2);
+        }
+        const r2 = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
+
+        // Parse last YYYY-MM and project next months
+        const [lastY, lastM] = sortedMonths[n - 1][0].split("-").map(Number);
+        const points = [];
+        for (let h = 1; h <= horizon; h++) {
+          const dt = new Date(lastY, (lastM - 1) + h, 1);
+          const ym = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+          const predicted = Math.max(0, intercept + slope * (n - 1 + h));
+          points.push({ label: ym, value: predicted });
+        }
+
+        return { points, slope, r2 };
+      }
+
+      function computeInsights(analytics) {
+        const productsSorted = Array.from(analytics.byProduct.entries()).sort((a, b) => b[1] - a[1]);
+        const regionsSorted = Array.from(analytics.byRegion.entries()).sort((a, b) => b[1] - a[1]);
+
+        // 1. Best & worst product / region
+        const bestProd = productsSorted[0];
+        const worstProd = productsSorted[productsSorted.length - 1];
+        const bestReg = regionsSorted[0];
+        const worstReg = regionsSorted[regionsSorted.length - 1];
+
+        let performerHtml = "Not enough distinct products or regions to compare.";
+        if (bestProd && bestReg) {
+          const prodShare = analytics.totalRevenue > 0 ? (bestProd[1] / analytics.totalRevenue) * 100 : 0;
+          const regShare = analytics.totalRevenue > 0 ? (bestReg[1] / analytics.totalRevenue) * 100 : 0;
+          performerHtml = `
+            <strong>${escapeHtml(bestProd[0])}</strong> leads products at <strong>${formatCurrency(bestProd[1])}</strong> (${prodShare.toFixed(1)}%),
+            while <strong>${escapeHtml(worstProd[0])}</strong> trails at ${formatCurrency(worstProd[1])}.
+            Top region is <strong>${escapeHtml(bestReg[0])}</strong> (${regShare.toFixed(1)}%); lowest is <strong>${escapeHtml(worstReg[0])}</strong>.
+          `;
+        }
+
+        // 2. Highest MoM growth & steepest decline
+        let bestGrowth = null;
+        let worstDrop = null;
+        const months = analytics.sortedMonths;
+        for (let i = 1; i < months.length; i++) {
+          const [prevM, prevV] = months[i - 1];
+          const [currM, currV] = months[i];
+          if (prevV <= 0) continue;
+          const pct = ((currV - prevV) / prevV) * 100;
+          if (!bestGrowth || pct > bestGrowth.pct) bestGrowth = { month: currM, prev: prevM, pct, delta: currV - prevV };
+          if (!worstDrop || pct < worstDrop.pct) worstDrop = { month: currM, prev: prevM, pct, delta: currV - prevV };
+        }
+
+        let momentumHtml = "At least 2 monthly periods are needed to measure month-over-month swings.";
+        if (bestGrowth && worstDrop) {
+          momentumHtml = `
+            Strongest surge occurred in <strong>${bestGrowth.month}</strong> (<strong>+${bestGrowth.pct.toFixed(1)}%</strong>, +${formatCurrency(bestGrowth.delta)} vs ${bestGrowth.prev}).
+            Steepest dip was in <strong>${worstDrop.month}</strong> (<strong>${worstDrop.pct.toFixed(1)}%</strong>, ${formatCurrency(worstDrop.delta)}).
+          `;
+        }
+
+        // 3. Pareto (Top 20% of products revenue share)
+        let paretoHtml = "No product revenue available.";
+        if (productsSorted.length > 0 && analytics.totalRevenue > 0) {
+          const topCount = Math.max(1, Math.ceil(productsSorted.length * 0.2));
+          const topRev = productsSorted.slice(0, topCount).reduce((s, p) => s + p[1], 0);
+          const pctRev = (topRev / analytics.totalRevenue) * 100;
+          paretoHtml = `
+            Your top 20% of products (<strong>${topCount} of ${productsSorted.length}</strong>) generate
+            <strong>${pctRev.toFixed(1)}%</strong> of total revenue (<strong>${formatCurrency(topRev)}</strong>).
+          `;
+        }
+
+        // 4. 3-Month Linear Trend Forecast
+        const forecast = computeLinearForecast(months, 3);
+        let forecastHtml = "Need at least 2 months of history to project a linear trend.";
+        if (forecast.points.length === 3) {
+          const dir = forecast.slope >= 0 ? "upward" : "downward";
+          const slopeSign = forecast.slope >= 0 ? "+" : "";
+          const list = forecast.points.map(p => `<strong>${p.label}</strong>: ${formatCurrency(p.value, true)}`).join(" · ");
+          forecastHtml = `
+            Trend slopes <strong>${dir} (${slopeSign}${formatCurrency(forecast.slope)}/mo)</strong>.
+            Projected next 3 months: ${list} <span style="color:var(--text-muted)">(R²=${forecast.r2.toFixed(2)})</span>.
+          `;
+        }
+
+        return [
+          { tag: "Top & Bottom Performers", html: performerHtml },
+          { tag: "Peak Growth & Dip",       html: momentumHtml },
+          { tag: "Pareto Concentration",    html: paretoHtml },
+          { tag: "3-Month Trend Forecast",  html: forecastHtml }
+        ];
+      }
+
+      /* -----------------------------------------------------------------------
+         7. VISUALIZATIONS (CHART.JS, HEATMAP, KPI CARDS & DATA TABLE)
+         ----------------------------------------------------------------------- */
+      function getThemeColors() {
+        const dark = document.documentElement.getAttribute("data-theme") === "dark";
+        return {
+          text: dark ? "#cbd5e1" : "#475569",
+          grid: dark ? "rgba(148, 163, 184, 0.12)" : "rgba(15, 23, 42, 0.08)",
+          surface: dark ? "#111827" : "#ffffff"
+        };
+      }
+
+      function renderKPIs(a) {
+        document.getElementById("kpiRevenue").textContent = formatCurrency(a.totalRevenue);
+        document.getElementById("kpiRevenueSub").textContent = `${formatNumber(state.filteredData.length)} line items`;
+
+        document.getElementById("kpiOrders").textContent = formatNumber(a.totalOrders);
+        document.getElementById("kpiOrdersSub").textContent = a.totalOrders > 0
+          ? `${(state.filteredData.length / a.totalOrders).toFixed(1)} items / order`
+          : "Unique orders";
+
+        document.getElementById("kpiAov").textContent = formatCurrency(a.aov);
+        document.getElementById("kpiAovSub").textContent = "Revenue per order";
+
+        document.getElementById("kpiUnits").textContent = formatNumber(a.totalUnits);
+        document.getElementById("kpiUnitsSub").textContent = a.totalOrders > 0
+          ? `${(a.totalUnits / a.totalOrders).toFixed(1)} units / order`
+          : "Total quantity";
+
+        const marginEl = document.getElementById("kpiMargin");
+        const marginSub = document.getElementById("kpiMarginSub");
+        if (a.hasCost) {
+          marginEl.textContent = formatPercent(a.profitMargin);
+          marginSub.textContent = `${formatCurrency(a.totalProfit)} net profit`;
+        } else {
+          marginEl.textContent = "N/A";
+          marginSub.textContent = "Cost column not provided";
+        }
+
+        const momEl = document.getElementById("kpiMom");
+        const momSub = document.getElementById("kpiMomSub");
+        if (Number.isFinite(a.momGrowth)) {
+          const isUp = a.momGrowth >= 0;
+          const arrow = isUp ? "▲" : "▼";
+          const sign = isUp ? "+" : "";
+          momEl.innerHTML = `<span class="${isUp ? "badge-up" : "badge-down"}" style="font-size:17px;">${arrow} ${sign}${a.momGrowth.toFixed(1)}%</span>`;
+          momSub.textContent = a.momLabel;
+        } else {
+          momEl.textContent = "—";
+          momSub.textContent = a.momLabel;
+        }
+      }
+
+      function renderInsights(insights) {
+        const grid = document.getElementById("insightsGrid");
+        grid.innerHTML = insights.map(item => `
+          <div class="insight-item">
+            <div class="insight-tag">${item.tag}</div>
+            <div class="insight-text">${item.html}</div>
+          </div>
+        `).join("");
+      }
+
+      function destroyCharts() {
+        for (const key of Object.keys(state.charts)) {
+          if (state.charts[key]) {
+            state.charts[key].destroy();
+            state.charts[key] = null;
+          }
+        }
+      }
+
+      function renderCharts(a) {
+        if (typeof Chart === "undefined") {
+          ["trendChart", "categoryChart", "productChart", "regionChart"].forEach(id => {
+            const canvas = document.getElementById(id);
+            if (canvas && canvas.parentElement && !canvas.parentElement.querySelector(".offline-chart-msg")) {
+              const msg = document.createElement("div");
+              msg.className = "offline-chart-msg alert alert-error";
+              msg.textContent = "Chart.js could not be loaded (check internet connection or bundle Chart.js locally).";
+              canvas.style.display = "none";
+              canvas.parentElement.appendChild(msg);
+            }
+          });
+          return;
+        }
+        const theme = getThemeColors();
+        Chart.defaults.color = theme.text;
+        Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+        destroyCharts();
+
+        /* --- 1. Revenue Trend Line Chart --- */
+        const gran = state.granularity;
+        const sourceMap = gran === "daily" ? a.byDay : gran === "quarterly" ? a.byQuarter : a.byMonth;
+        const sortedEntries = Array.from(sourceMap.entries()).sort((x, y) => x[0].localeCompare(y[0]));
+        const labels = sortedEntries.map(e => e[0]);
+        const values = sortedEntries.map(e => e[1]);
+
+        const datasets = [{
+          label: "Actual Revenue",
+          data: values,
+          borderColor: "#4f46e5",
+          backgroundColor: "rgba(79, 70, 229, 0.14)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: gran === "daily" && labels.length > 60 ? 0 : 3.5,
+          pointHoverRadius: 6
+        }];
+
+        // Show 3-month linear forecast overlay when viewing Monthly
+        if (gran === "monthly" && state.showForecast && sortedEntries.length >= 2) {
+          const forecast = computeLinearForecast(sortedEntries, 3);
+          const forecastData = new Array(labels.length - 1).fill(null);
+          forecastData.push(values[values.length - 1]); // bridge from last actual point
+          for (const pt of forecast.points) {
+            labels.push(pt.label);
+            values.push(null);
+            forecastData.push(pt.value);
+          }
+          datasets.push({
+            label: "Linear Forecast",
+            data: forecastData,
+            borderColor: "#10b981",
+            borderDash: [6, 5],
+            backgroundColor: "transparent",
+            tension: 0,
+            pointRadius: 4,
+            pointBackgroundColor: "#10b981"
+          });
+        }
+
+        state.charts.trend = new Chart(document.getElementById("trendChart"), {
+          type: "line",
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            onClick: (_evt, elements) => {
+              if (!elements.length) return;
+              const actualEl = elements.find(el => el.datasetIndex === 0);
+              if (!actualEl) return;
+              const idx = actualEl.index;
+              if (values[idx] === null) return; // ignore forecast-only x slots
+              const clickedKey = labels[idx];
+              if (state.crossFilters.periodKey === clickedKey && state.crossFilters.periodGranularity === gran) {
+                state.crossFilters.periodKey = null;
+                state.crossFilters.periodGranularity = null;
+              } else {
+                state.crossFilters.periodKey = clickedKey;
+                state.crossFilters.periodGranularity = gran;
+              }
+              refreshDashboard();
+            },
+            plugins: {
+              legend: { display: datasets.length > 1, position: "top", align: "end" },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ctx.parsed.y !== null ? `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` : null
+                }
+              }
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } },
+              y: {
+                grid: { color: theme.grid },
+                ticks: { callback: (v) => formatCurrency(v, true) }
+              }
+            }
+          }
+        });
+
+        /* --- 2. Category Donut Chart --- */
+        const catEntries = Array.from(a.byCategory.entries()).sort((x, y) => y[1] - x[1]);
+        state.charts.category = new Chart(document.getElementById("categoryChart"), {
+          type: "doughnut",
+          data: {
+            labels: catEntries.map(e => e[0]),
+            datasets: [{
+              data: catEntries.map(e => e[1]),
+              backgroundColor: catEntries.map((_, i) => PALETTE[i % PALETTE.length]),
+              borderColor: theme.surface,
+              borderWidth: 2,
+              hoverOffset: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "62%",
+            onClick: (_evt, elements) => {
+              if (!elements.length) return;
+              const clicked = catEntries[elements[0].index][0];
+              state.crossFilters.category = state.crossFilters.category === clicked ? null : clicked;
+              refreshDashboard();
+            },
+            plugins: {
+              legend: { position: "bottom", labels: { boxWidth: 12, padding: 12 } },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const val = ctx.parsed;
+                    const pct = a.totalRevenue > 0 ? ((val / a.totalRevenue) * 100).toFixed(1) : 0;
+                    return `${ctx.label}: ${formatCurrency(val)} (${pct}%)`;
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        /* --- 3. Top 10 Products Bar Chart --- */
+        const topProducts = Array.from(a.byProduct.entries()).sort((x, y) => y[1] - x[1]).slice(0, 10);
+        state.charts.product = new Chart(document.getElementById("productChart"), {
+          type: "bar",
+          data: {
+            labels: topProducts.map(e => e[0]),
+            datasets: [{
+              label: "Revenue",
+              data: topProducts.map(e => e[1]),
+              backgroundColor: topProducts.map(e =>
+                state.crossFilters.product && state.crossFilters.product !== e[0]
+                  ? "rgba(99, 102, 241, 0.3)"
+                  : "#4f46e5"
+              ),
+              borderRadius: 5
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: (_evt, elements) => {
+              if (!elements.length) return;
+              const clicked = topProducts[elements[0].index][0];
+              state.crossFilters.product = state.crossFilters.product === clicked ? null : clicked;
+              refreshDashboard();
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: { label: (ctx) => `Revenue: ${formatCurrency(ctx.parsed.y)}` }
+              }
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { maxRotation: 35, minRotation: 0 } },
+              y: { grid: { color: theme.grid }, ticks: { callback: (v) => formatCurrency(v, true) } }
+            }
+          }
+        });
+
+        /* --- 4. Revenue by Region Horizontal Bar Chart --- */
+        const regEntries = Array.from(a.byRegion.entries()).sort((x, y) => y[1] - x[1]);
+        state.charts.region = new Chart(document.getElementById("regionChart"), {
+          type: "bar",
+          data: {
+            labels: regEntries.map(e => e[0]),
+            datasets: [{
+              label: "Revenue",
+              data: regEntries.map(e => e[1]),
+              backgroundColor: regEntries.map((e, i) =>
+                state.crossFilters.region && state.crossFilters.region !== e[0]
+                  ? "rgba(148, 163, 184, 0.35)"
+                  : PALETTE[(i + 1) % PALETTE.length]
+              ),
+              borderRadius: 5
+            }]
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: (_evt, elements) => {
+              if (!elements.length) return;
+              const clicked = regEntries[elements[0].index][0];
+              state.crossFilters.region = state.crossFilters.region === clicked ? null : clicked;
+              refreshDashboard();
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const val = ctx.parsed.x;
+                    const pct = a.totalRevenue > 0 ? ((val / a.totalRevenue) * 100).toFixed(1) : 0;
+                    return `${formatCurrency(val)} (${pct}%)`;
+                  }
+                }
+              }
+            },
+            scales: {
+              x: { grid: { color: theme.grid }, ticks: { callback: (v) => formatCurrency(v, true) } },
+              y: { grid: { display: false } }
+            }
+          }
+        });
+      }
+
+      function renderHeatmap(a) {
+        const container = document.getElementById("heatmapContainer");
+        let maxVal = 0;
+        for (let m = 0; m < 12; m++) {
+          for (let w = 0; w < 7; w++) {
+            if (a.heatmap[m][w].revenue > maxVal) maxVal = a.heatmap[m][w].revenue;
+          }
+        }
+
+        const getHeatColor = (val) => {
+          if (val <= 0 || maxVal <= 0) return { bg: "var(--heatmap-0)", fg: "var(--text-muted)" };
+          const ratio = val / maxVal;
+          if (ratio < 0.25) return { bg: "var(--heatmap-1)", fg: "var(--text-primary)" };
+          if (ratio < 0.50) return { bg: "var(--heatmap-2)", fg: "#ffffff" };
+          if (ratio < 0.75) return { bg: "var(--heatmap-3)", fg: "#ffffff" };
+          return { bg: "var(--heatmap-4)", fg: "#ffffff" };
+        };
+
+        let html = `<table class="heatmap-table"><thead><tr><th class="row-label"></th>`;
+        for (const mName of MONTH_NAMES) html += `<th>${mName}</th>`;
+        html += `</tr></thead><tbody>`;
+
+        for (let w = 0; w < 7; w++) {
+          html += `<tr><th class="row-label">${WEEKDAYS[w]}</th>`;
+          for (let m = 0; m < 12; m++) {
+            const cell = a.heatmap[m][w];
+            const { bg, fg } = getHeatColor(cell.revenue);
+            const isSelected = state.crossFilters.monthIndex === m && state.crossFilters.weekdayIndex === w;
+            const label = cell.revenue > 0 ? formatCurrency(cell.revenue, true) : "—";
+            html += `
+              <td class="heatmap-cell ${isSelected ? "active-cell" : ""}"
+                  style="background:${bg}; color:${fg};"
+                  data-m="${m}" data-w="${w}"
+                  data-rev="${cell.revenue}" data-orders="${cell.orders.size}">
+                ${label}
+              </td>
+            `;
+          }
+          html += `</tr>`;
+        }
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+
+        // Tooltip & click cross-filter handlers
+        const tip = document.getElementById("heatmapTooltip");
+        container.querySelectorAll(".heatmap-cell").forEach(td => {
+          td.addEventListener("mousemove", (e) => {
+            const m = Number(td.dataset.m);
+            const w = Number(td.dataset.w);
+            const rev = Number(td.dataset.rev);
+            const orders = Number(td.dataset.orders);
+            tip.innerHTML = `<strong>${WEEKDAYS[w]} · ${MONTH_NAMES[m]}</strong><br/>Revenue: ${formatCurrency(rev)}<br/>Orders: ${formatNumber(orders)}`;
+            tip.style.display = "block";
+            tip.style.left = `${Math.min(window.innerWidth - 190, e.clientX + 14)}px`;
+            tip.style.top = `${e.clientY - 12}px`;
+          });
+          td.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+          td.addEventListener("click", () => {
+            tip.style.display = "none";
+            const m = Number(td.dataset.m);
+            const w = Number(td.dataset.w);
+            if (state.crossFilters.monthIndex === m && state.crossFilters.weekdayIndex === w) {
+              state.crossFilters.monthIndex = null;
+              state.crossFilters.weekdayIndex = null;
+            } else {
+              state.crossFilters.monthIndex = m;
+              state.crossFilters.weekdayIndex = w;
+            }
+            refreshDashboard();
+          });
+        });
+      }
+
+      function renderDataTable() {
+        const q = state.table.search.trim().toLowerCase();
+        let rows = state.filteredData;
+        if (q) {
+          rows = rows.filter(r =>
+            r.orderId.toLowerCase().includes(q) ||
+            r.product.toLowerCase().includes(q) ||
+            r.category.toLowerCase().includes(q) ||
+            r.region.toLowerCase().includes(q) ||
+            r.customer.toLowerCase().includes(q) ||
+            r.dateStr.includes(q)
+          );
+        }
+
+        const { sortKey, sortDir, pageSize } = state.table;
+        const mult = sortDir === "asc" ? 1 : -1;
+        const sorted = rows.slice().sort((a, b) => {
+          const va = a[sortKey];
+          const vb = b[sortKey];
+          if (typeof va === "number" && typeof vb === "number") {
+            const na = Number.isFinite(va) ? va : -Infinity;
+            const nb = Number.isFinite(vb) ? vb : -Infinity;
+            return (na - nb) * mult;
+          }
+          return String(va ?? "").localeCompare(String(vb ?? "")) * mult;
+        });
+
+        const total = sorted.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        if (state.table.page > totalPages) state.table.page = totalPages;
+        const startIdx = (state.table.page - 1) * pageSize;
+        const pageRows = sorted.slice(startIdx, startIdx + pageSize);
+
+        // Update sort arrows in header
+        document.querySelectorAll("#tableHeadRow th").forEach(th => {
+          const key = th.dataset.sort;
+          const base = th.textContent.replace(/ [▲▼]$/, "");
+          th.textContent = key === sortKey ? `${base} ${sortDir === "asc" ? "▲" : "▼"}` : base;
+        });
+
+        const tbody = document.getElementById("tableBody");
+        if (pageRows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--text-muted);">No matching transactions for your search query.</td></tr>`;
+        } else {
+          tbody.innerHTML = pageRows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.orderId)}</td>
+              <td>${escapeHtml(r.dateStr)}</td>
+              <td title="${escapeHtml(r.product)}">${escapeHtml(r.product)}</td>
+              <td>${escapeHtml(r.category)}</td>
+              <td>${escapeHtml(r.region)}</td>
+              <td title="${escapeHtml(r.customer)}">${escapeHtml(r.customer)}</td>
+              <td class="num">${formatNumber(r.quantity)}</td>
+              <td class="num">${formatCurrency(r.unitPrice)}</td>
+              <td class="num"><strong>${formatCurrency(r.revenue)}</strong></td>
+              <td class="num">${Number.isFinite(r.cost) ? formatCurrency(r.cost) : "—"}</td>
+            </tr>
+          `).join("");
+        }
+
+        const endIdx = Math.min(total, startIdx + pageRows.length);
+        document.getElementById("paginationInfo").textContent =
+          total === 0 ? "Showing 0 of 0" : `Showing ${formatNumber(startIdx + 1)}–${formatNumber(endIdx)} of ${formatNumber(total)}`;
+        document.getElementById("pageIndicator").textContent = `Page ${state.table.page} of ${totalPages}`;
+
+        document.getElementById("firstPageBtn").disabled = state.table.page <= 1;
+        document.getElementById("prevPageBtn").disabled = state.table.page <= 1;
+        document.getElementById("nextPageBtn").disabled = state.table.page >= totalPages;
+        document.getElementById("lastPageBtn").disabled = state.table.page >= totalPages;
+      }
+
+      /* -----------------------------------------------------------------------
+         8. SIDEBAR RENDERING, CROSS-FILTER PILLS & DASHBOARD ORCHESTRATION
+         ----------------------------------------------------------------------- */
+      function renderSidebarFilters() {
+        const startEl = document.getElementById("dateStartInput");
+        const endEl = document.getElementById("dateEndInput");
+        startEl.min = state.facets.minDateStr;
+        startEl.max = state.facets.maxDateStr;
+        endEl.min = state.facets.minDateStr;
+        endEl.max = state.facets.maxDateStr;
+        startEl.value = state.filters.dateStart;
+        endEl.value = state.filters.dateEnd;
+
+        document.querySelectorAll("#datePresets .preset-chip").forEach(btn => {
+          btn.classList.toggle("active", btn.dataset.preset === state.filters.datePreset);
+        });
+
+        // Precompute raw counts for facets
+        const counts = { categories: new Map(), regions: new Map(), products: new Map() };
+        for (const r of state.rawData) {
+          counts.categories.set(r.category, (counts.categories.get(r.category) || 0) + 1);
+          counts.regions.set(r.region, (counts.regions.get(r.region) || 0) + 1);
+          counts.products.set(r.product, (counts.products.get(r.product) || 0) + 1);
+        }
+
+        const buildChecklist = (containerId, items, activeSet, facetKey, filterText = "") => {
+          const box = document.getElementById(containerId);
+          const q = filterText.trim().toLowerCase();
+          const filtered = q ? items.filter(it => it.toLowerCase().includes(q)) : items;
+
+          if (filtered.length === 0) {
+            box.innerHTML = `<div style="padding:6px; font-size:12px; color:var(--text-muted);">No matches</div>`;
+            return;
+          }
+
+          box.innerHTML = filtered.map(item => `
+            <label class="check-item" title="${escapeHtml(item)}">
+              <span class="check-item-left">
+                <input type="checkbox" data-facet="${facetKey}" value="${escapeHtml(item)}" ${activeSet.has(item) ? "checked" : ""} />
+                <span>${escapeHtml(item)}</span>
+              </span>
+              <span class="check-count">${formatNumber(counts[facetKey].get(item) || 0)}</span>
+            </label>
+          `).join("");
+
+          box.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+            chk.addEventListener("change", () => {
+              const val = chk.value;
+              if (chk.checked) state.filters[facetKey].add(val);
+              else state.filters[facetKey].delete(val);
+              state.table.page = 1;
+              refreshDashboard();
+            });
+          });
+        };
+
+        buildChecklist("categoryFilterList", state.facets.categories, state.filters.categories, "categories");
+        buildChecklist("regionFilterList", state.facets.regions, state.filters.regions, "regions");
+        buildChecklist("productFilterList", state.facets.products, state.filters.products, "products", state.filters.productSearch);
+      }
+
+      function renderCrossFilterPills() {
+        const pillsEl = document.getElementById("crossFilterPills");
+        const cf = state.crossFilters;
+        const pills = [];
+
+        if (cf.category) pills.push({ key: "category", label: `Category: ${cf.category}` });
+        if (cf.region) pills.push({ key: "region", label: `Region: ${cf.region}` });
+        if (cf.product) pills.push({ key: "product", label: `Product: ${cf.product}` });
+        if (cf.periodKey) pills.push({ key: "period", label: `Period: ${cf.periodKey}` });
+        if (cf.monthIndex !== null && cf.weekdayIndex !== null) {
+          pills.push({ key: "heat", label: `Cell: ${WEEKDAYS[cf.weekdayIndex]} · ${MONTH_NAMES[cf.monthIndex]}` });
+        }
+
+        pillsEl.innerHTML = pills.map(p => `
+          <span class="cross-pill">
+            <span>${escapeHtml(p.label)}</span>
+            <button data-clear-cf="${p.key}" title="Remove cross-filter">✕</button>
+          </span>
+        `).join("");
+
+        pillsEl.querySelectorAll("button[data-clear-cf]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const k = btn.dataset.clearCf;
+            if (k === "period") {
+              state.crossFilters.periodKey = null;
+              state.crossFilters.periodGranularity = null;
+            } else if (k === "heat") {
+              state.crossFilters.monthIndex = null;
+              state.crossFilters.weekdayIndex = null;
+            } else {
+              state.crossFilters[k] = null;
+            }
+            refreshDashboard();
+          });
+        });
+      }
+
+      function refreshDashboard() {
+        applyFilters();
+
+        document.getElementById("filterSummaryText").textContent =
+          `Showing ${formatNumber(state.filteredData.length)} of ${formatNumber(state.rawData.length)} records`;
+        document.getElementById("dateSpanLabel").textContent =
+          state.filters.dateStart && state.filters.dateEnd
+            ? `${state.filters.dateStart} → ${state.filters.dateEnd}`
+            : "";
+
+        renderCrossFilterPills();
+
+        const emptyEl = document.getElementById("emptyState");
+        const bodyEl = document.getElementById("dashboardBody");
+
+        if (state.filteredData.length === 0) {
+          destroyCharts();
+          emptyEl.style.display = "flex";
+          bodyEl.style.display = "none";
+          return;
+        }
+
+        emptyEl.style.display = "none";
+        bodyEl.style.display = "flex";
+
+        const analytics = computeAnalytics(state.filteredData);
+        const insights = computeInsights(analytics);
+
+        renderKPIs(analytics);
+        renderInsights(insights);
+        renderCharts(analytics);
+        renderHeatmap(analytics);
+        renderDataTable();
+      }
+
+      /* -----------------------------------------------------------------------
+         9. IMPORT MODAL STAGING, PREVIEW & CSV EXPORT
+         ----------------------------------------------------------------------- */
+      function renderUploadAlert(type, message) {
+        const cls = type === "error" ? "alert-error" : type === "success" ? "alert-success" : "alert-info";
+        document.getElementById("uploadStatusArea").innerHTML = `<div class="alert ${cls}">${escapeHtml(message)}</div>`;
+      }
+
+      function stageParsedDataset(headers, rows, filename) {
+        state.staging.headers = headers;
+        state.staging.rows = rows;
+        state.staging.filename = filename;
+        state.staging.mapping = autoDetectMapping(headers);
+
+        renderUploadAlert("success", `Parsed "${filename}" (${formatNumber(rows.length)} rows, ${headers.length} columns). Switched to Column Mapping & Preview.`);
+        renderStagingPreview();
+        switchModalTab("mapping");
+      }
+
+      function renderStagingPreview() {
+        const { headers, rows, mapping } = state.staging;
+        document.getElementById("mappingEmptyNote").style.display = "none";
+        document.getElementById("mappingControlsWrap").style.display = "flex";
+
+        const grid = document.getElementById("mappingGrid");
+        grid.innerHTML = SCHEMA_FIELDS.map(f => {
+          const opts = [`<option value="">— Not Mapped —</option>`].concat(
+            headers.map(h => `<option value="${escapeHtml(h)}" ${mapping[f.key] === h ? "selected" : ""}>${escapeHtml(h)}</option>`)
+          ).join("");
+          return `
+            <div class="mapping-field">
+              <label>${f.label} ${f.required ? '<span class="req-star">*</span>' : ""}</label>
+              <select class="input-field" data-map-field="${f.key}">${opts}</select>
+            </div>
+          `;
+        }).join("");
+
+        grid.querySelectorAll("select[data-map-field]").forEach(sel => {
+          sel.addEventListener("change", () => {
+            state.staging.mapping[sel.dataset.mapField] = sel.value;
+            validateStagingPreview();
+          });
+        });
+
+        // First 10 raw rows preview
+        const previewRows = rows.slice(0, 10);
+        const table = document.getElementById("previewTable");
+        const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+        const tbody = `<tbody>${previewRows.map(r => `<tr>${headers.map(h => `<td>${escapeHtml(r[h] instanceof Date ? toIsoDate(r[h]) : r[h])}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        table.innerHTML = thead + tbody;
+
+        validateStagingPreview();
+      }
+
+      function validateStagingPreview() {
+        // Test normalization on up to first 200 rows for instant feedback
+        const sampleSlice = state.staging.rows.slice(0, 200);
+        const res = normalizeAndValidateRows(sampleSlice, state.staging.mapping);
+        const msgEl = document.getElementById("mappingValidationMsg");
+        const applyBtn = document.getElementById("applyImportBtn");
+
+        if (res.errors.length > 0) {
+          msgEl.innerHTML = `<div class="alert alert-error"><strong>Mapping errors:</strong><br/>${res.errors.map(escapeHtml).join("<br/>")}</div>`;
+          applyBtn.disabled = true;
+        } else {
+          const warnTxt = res.warnings.length ? `<br/><span style="color:var(--text-secondary)">Note: ${res.warnings.map(escapeHtml).join(" ")}</span>` : "";
+          msgEl.innerHTML = `<div class="alert alert-success">Mapping looks valid! Ready to import ${formatNumber(state.staging.rows.length)} rows.${warnTxt}</div>`;
+          applyBtn.disabled = false;
+        }
+      }
+
+      function switchModalTab(tabName) {
+        document.querySelectorAll(".modal-tabs .tab-btn").forEach(btn => {
+          btn.classList.toggle("active", btn.dataset.tab === tabName);
+        });
+        document.querySelectorAll(".tab-pane").forEach(pane => {
+          pane.style.display = pane.id === `tab-${tabName}` ? "flex" : "none";
+        });
+      }
+
+      function exportFilteredCSV() {
+        if (state.filteredData.length === 0) return;
+        const headers = ["Order ID", "Date", "Product", "Category", "Region", "Customer", "Quantity", "Unit Price", "Revenue", "Cost"];
+        const escCsv = (v) => {
+          const s = String(v ?? "");
+          return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+
+        const lines = [headers.join(",")];
+        for (const r of state.filteredData) {
+          lines.push([
+            escCsv(r.orderId),
+            escCsv(r.dateStr),
+            escCsv(r.product),
+            escCsv(r.category),
+            escCsv(r.region),
+            escCsv(r.customer),
+            r.quantity,
+            r.unitPrice.toFixed(2),
+            r.revenue.toFixed(2),
+            Number.isFinite(r.cost) ? r.cost.toFixed(2) : ""
+          ].join(","));
+        }
+
+        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sales_export_${toIsoDate(new Date())}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      /* -----------------------------------------------------------------------
+         10. THEME & EVENT LISTENERS INITIALIZATION
+         ----------------------------------------------------------------------- */
+      function initTheme() {
+        const saved = localStorage.getItem("pulsebi_theme") || "light";
+        document.documentElement.setAttribute("data-theme", saved);
+        document.getElementById("themeIcon").textContent = saved === "dark" ? "☀️" : "🌙";
+      }
+
+      function bindEvents() {
+        // Theme Toggle
+        document.getElementById("themeToggleBtn").addEventListener("click", () => {
+          const current = document.documentElement.getAttribute("data-theme");
+          const next = current === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          localStorage.setItem("pulsebi_theme", next);
+          document.getElementById("themeIcon").textContent = next === "dark" ? "☀️" : "🌙";
+          if (state.filteredData.length > 0) {
+            renderCharts(computeAnalytics(state.filteredData));
+          }
+        });
+
+        // Mobile Sidebar Drawer
+        const sidebar = document.getElementById("sidebar");
+        const backdrop = document.getElementById("sidebarBackdrop");
+        const toggleDrawer = (open) => {
+          sidebar.classList.toggle("open", open);
+          backdrop.classList.toggle("visible", open);
+        };
+        document.getElementById("mobileSidebarBtn").addEventListener("click", () => toggleDrawer(!sidebar.classList.contains("open")));
+        backdrop.addEventListener("click", () => toggleDrawer(false));
+
+        // Reset Filters
+        document.getElementById("resetFiltersBtn").addEventListener("click", () => resetAllFilters(true));
+        document.getElementById("emptyResetBtn").addEventListener("click", () => resetAllFilters(true));
+        document.getElementById("dismissQualityBtn").addEventListener("click", () => {
+          document.getElementById("dataQualityBanner").style.display = "none";
+        });
+
+        // Date Range & Presets
+        const onDateChange = () => {
+          state.filters.dateStart = document.getElementById("dateStartInput").value;
+          state.filters.dateEnd = document.getElementById("dateEndInput").value;
+          state.filters.datePreset = "custom";
+          document.querySelectorAll("#datePresets .preset-chip").forEach(b => b.classList.remove("active"));
+          state.table.page = 1;
+          refreshDashboard();
+        };
+        document.getElementById("dateStartInput").addEventListener("change", onDateChange);
+        document.getElementById("dateEndInput").addEventListener("change", onDateChange);
+
+        document.querySelectorAll("#datePresets .preset-chip").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const preset = btn.dataset.preset;
+            state.filters.datePreset = preset;
+            const maxDt = parseDateSafe(state.facets.maxDateStr) || new Date();
+            let startDt = parseDateSafe(state.facets.minDateStr) || maxDt;
+
+            if (preset === "3m") startDt = new Date(maxDt.getFullYear(), maxDt.getMonth() - 3, maxDt.getDate());
+            else if (preset === "6m") startDt = new Date(maxDt.getFullYear(), maxDt.getMonth() - 6, maxDt.getDate());
+            else if (preset === "12m") startDt = new Date(maxDt.getFullYear() - 1, maxDt.getMonth(), maxDt.getDate());
+            else if (preset === "ytd") startDt = new Date(maxDt.getFullYear(), 0, 1);
+
+            const minAllowed = parseDateSafe(state.facets.minDateStr);
+            if (minAllowed && startDt < minAllowed) startDt = minAllowed;
+
+            state.filters.dateStart = toIsoDate(startDt);
+            state.filters.dateEnd = state.facets.maxDateStr;
+            state.table.page = 1;
+            renderSidebarFilters();
+            refreshDashboard();
+          });
+        });
+
+        // All / None Facet Quick Links
+        document.querySelectorAll("[data-select-all]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const facet = btn.dataset.selectAll;
+            state.filters[facet] = new Set(state.facets[facet]);
+            state.table.page = 1;
+            renderSidebarFilters();
+            refreshDashboard();
+          });
+        });
+        document.querySelectorAll("[data-select-none]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const facet = btn.dataset.selectNone;
+            state.filters[facet] = new Set();
+            state.table.page = 1;
+            renderSidebarFilters();
+            refreshDashboard();
+          });
+        });
+
+        // Product Filter Search
+        document.getElementById("productFilterSearch").addEventListener("input", (e) => {
+          state.filters.productSearch = e.target.value;
+          renderSidebarFilters();
+        });
+
+        // Granularity & Forecast Toggle
+        document.querySelectorAll("#granularityToggle .seg-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            state.granularity = btn.dataset.granularity;
+            document.querySelectorAll("#granularityToggle .seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+            if (state.crossFilters.periodKey && state.crossFilters.periodGranularity !== state.granularity) {
+              state.crossFilters.periodKey = null;
+              state.crossFilters.periodGranularity = null;
+            }
+            refreshDashboard();
+          });
+        });
+
+        document.getElementById("toggleForecastChk").addEventListener("change", (e) => {
+          state.showForecast = e.target.checked;
+          if (state.filteredData.length > 0) renderCharts(computeAnalytics(state.filteredData));
+        });
+
+        // Data Table Search, Sorting & Pagination
+        document.getElementById("tableSearchInput").addEventListener("input", (e) => {
+          state.table.search = e.target.value;
+          state.table.page = 1;
+          renderDataTable();
+        });
+
+        document.getElementById("pageSizeSelect").addEventListener("change", (e) => {
+          state.table.pageSize = Number(e.target.value);
+          state.table.page = 1;
+          renderDataTable();
+        });
+
+        document.querySelectorAll("#tableHeadRow th").forEach(th => {
+          th.addEventListener("click", () => {
+            const key = th.dataset.sort;
+            if (state.table.sortKey === key) {
+              state.table.sortDir = state.table.sortDir === "asc" ? "desc" : "asc";
+            } else {
+              state.table.sortKey = key;
+              state.table.sortDir = (key === "dateMs" || key === "revenue" || key === "quantity" || key === "unitPrice" || key === "cost") ? "desc" : "asc";
+            }
+            renderDataTable();
+          });
+        });
+
+        document.getElementById("firstPageBtn").addEventListener("click", () => { state.table.page = 1; renderDataTable(); });
+        document.getElementById("prevPageBtn").addEventListener("click", () => { state.table.page = Math.max(1, state.table.page - 1); renderDataTable(); });
+        document.getElementById("nextPageBtn").addEventListener("click", () => { state.table.page += 1; renderDataTable(); });
+        document.getElementById("lastPageBtn").addEventListener("click", () => { state.table.page = 999999; renderDataTable(); });
+
+        // Header Buttons: Sample Data & Export
+        document.getElementById("loadSampleBtn").addEventListener("click", () => {
+          const sample = generateSampleData();
+          loadDatasetIntoDashboard(sample, "Sample Data", true);
+        });
+        document.getElementById("exportCsvBtn").addEventListener("click", exportFilteredCSV);
+
+        // Import Modal Open/Close & Tabs
+        const modal = document.getElementById("importModal");
+        const closeModal = () => modal.classList.remove("visible");
+        document.getElementById("openImportBtn").addEventListener("click", () => modal.classList.add("visible"));
+        document.getElementById("closeImportModalBtn").addEventListener("click", closeModal);
+        document.getElementById("cancelImportBtn").addEventListener("click", closeModal);
+        modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+
+        document.querySelectorAll(".modal-tabs .tab-btn").forEach(btn => {
+          btn.addEventListener("click", () => switchModalTab(btn.dataset.tab));
+        });
+
+        // Drag & Drop + File Picker
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("fileInput");
+        document.getElementById("browseFileBtn").addEventListener("click", () => fileInput.click());
+        dropzone.addEventListener("click", (e) => { if (e.target.id !== "browseFileBtn") fileInput.click(); });
+        dropzone.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            fileInput.click();
+          }
+        });
+        dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+        dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+        dropzone.addEventListener("drop", (e) => {
+          e.preventDefault();
+          dropzone.classList.remove("dragover");
+          if (e.dataTransfer.files.length) parseUploadedFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener("change", () => {
+          if (fileInput.files.length) parseUploadedFile(fileInput.files[0]);
+          fileInput.value = "";
+        });
+
+        // Database / REST API Fetch Button
+        document.getElementById("fetchApiBtn").addEventListener("click", () => {
+          fetchSalesFromAPI(document.getElementById("apiUrlInput").value.trim());
+        });
+
+        // Apply Staged Data to Dashboard
+        document.getElementById("applyImportBtn").addEventListener("click", () => {
+          showLoading(`Importing ${state.staging.filename}…`);
+          setTimeout(() => {
+            const res = normalizeAndValidateRows(state.staging.rows, state.staging.mapping);
+            hideLoading();
+            if (res.errors.length > 0) {
+              document.getElementById("mappingValidationMsg").innerHTML =
+                `<div class="alert alert-error">${res.errors.map(escapeHtml).join("<br/>")}</div>`;
+              return;
+            }
+            closeModal();
+            loadDatasetIntoDashboard(res.validRows, state.staging.filename, res.hasCost, res.skipped, res.warnings);
+          }, 50);
+        });
+      }
+
+      /* -----------------------------------------------------------------------
+         BOOTSTRAP
+         ----------------------------------------------------------------------- */
+      initTheme();
+      bindEvents();
+      const initialSample = generateSampleData();
+      loadDatasetIntoDashboard(initialSample, "Sample Data", true);
+    })();
+  </script>
+</body>
+</html>
